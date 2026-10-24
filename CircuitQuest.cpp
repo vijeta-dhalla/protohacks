@@ -343,7 +343,23 @@ public:
         if (simulationMode) {
             return readIntInRange("Enter simulated " + label + " ADC reading (0-1023): ", 0, 1023);
         }
-        return requestReading(command, label, 0, 1023);
+
+        // IMPORTANT: The Arduino returns labels based on the measurement type
+        // (for example, "LED,420"), not the display label (for example, "A0").
+        // Map each request command to the matching reply tag.
+        string expectedTag;
+        if (command == "READ:LED") {
+            expectedTag = "LED";
+        } else if (command == "READ:POT") {
+            expectedTag = "POT";
+        } else if (command == "READ:RESISTORS") {
+            expectedTag = "RESISTORS";
+        } else {
+            cout << "\nUnsupported analog measurement command: " << command << "\n";
+            return nullopt;
+        }
+
+        return requestReading(command, expectedTag, 0, 1023);
     }
 
     optional<int> readDigitalButton() {
@@ -552,12 +568,12 @@ CheckResult checkButton(CircuitTester& tester) {
 CheckResult checkPotentiometer(CircuitTester& tester) {
     printHeader("CHECK CIRCUIT - POTENTIOMETER");
     cout << "Measure the middle terminal (wiper) at A1.\n";
-    cout << "Turn the knob to one end of its range before the first reading.\n";
+    cout << "Turn the knob counter-clockwiseto one end of its range before the first reading.\n";
     pauseForEnter();
     auto first = tester.readAnalog("READ:POT", "A1 first");
     if (!first) return CheckResult::CommunicationError;
 
-    cout << "Now rotate the knob substantially toward the other end of its range.\n";
+    cout << "Now rotate the knob the other way toward the other end of its range.\n";
     pauseForEnter();
     auto second = tester.readAnalog("READ:POT", "A1 second");
     if (!second) return CheckResult::CommunicationError;
@@ -760,3 +776,4 @@ int main(int argc, char* argv[]) {
 
 // g++ -std=c++17 -Wall -Wextra -pedantic CircuitQuest.cpp -o CircuitQuest
 // ls /dev/cu.usbmodem1101
+// ./CircuitQuest /dev/cu.usbmodem1101
