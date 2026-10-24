@@ -56,6 +56,7 @@ input{font:inherit;min-height:44px;padding:.4rem .6rem;width:9rem;border:2px sol
 .slot img{display:block;max-width:100%;height:auto}
 .slot.ok{border:0;padding:0;min-height:0;background:none}.slot.ok .ph{display:none}
 .cap{margin:-.4rem 0 1rem;font-size:.95rem;color:var(--muted)}
+.ans{margin-top:1.5rem;padding:0 1rem 1rem;border:2px solid var(--ok);border-radius:10px}
 .ln{margin:.45rem 0}.ln.ok{color:var(--ok);font-weight:700}.ln.bad{color:var(--bad);font-weight:700}
 form.q{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1rem}
 /* title screen: breadboard hero */
@@ -174,37 +175,42 @@ form.q{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1rem}
 <script>
 "use strict";
 // ------------------------- Challenges -------------------------
-// Each level needs two images. The first path comes from the original game;
-// the "breadboard" path is a suggested name (the C++ only said "optional pinout/breadboard image").
+// Each level has two images: "img" is the schematic shown on the level screen; "bb" is the correct
+// breadboard layout, revealed only by "Show correct answer" after two failed checks of that level.
 const CH=[
  {level:1,title:"LED Polarity",
   info:"An LED is polarized: current flows through it most easily in one direction. The longer leg is usually the anode (+); the shorter leg / flat edge marks the cathode (-). A series resistor limits current and helps protect the LED.",
   parts:"1 red LED, 1 × 330-ohm resistor, jumper wires",
   img:"images/level1_led_schematic.png",            // IMAGE NEEDED: Level 1 schematic
+  bb:"images/level1_breadboard_layout.png",   // IMAGE NEEDED: Level 1 correct breadboard layout (shown after 2 failed checks)
   desc:"5 V → 330-ohm resistor → A0 test junction → LED → GND"},
 
  {level:2,title:"Pushbutton",
   info:"A pushbutton temporarily connects two electrical contacts when pressed. On common four-leg tactile buttons, the two legs on each side are internally connected. This challenge uses INPUT_PULLUP: the input reads HIGH when released and LOW when pressed.",
   parts:"1 tactile pushbutton, jumper wires",
   img:"images/level2_button_schematic.png",         // IMAGE NEEDED: Level 2 schematic
+  bb:"images/level2_breadboard_layout.png",   // IMAGE NEEDED: Level 2 correct breadboard layout (shown after 2 failed checks)
   desc:"Arduino D2 → pushbutton → GND; configure D2 as INPUT_PULLUP"},
  
  {level:3,title:"Potentiometer",
   info:"A potentiometer is a three-terminal variable resistor. Its middle terminal (the wiper) moves between the two outer terminals, changing the output voltage. Potentiometers are used in volume controls, dimmers, and position adjustment.",
   parts:"1 × 10-kilohm potentiometer, jumper wires",
   img:"images/level3_potentiometer_schematic.png",  // IMAGE NEEDED: Level 3 schematic
+  bb:"images/level3_breadboard_layout.png",   // IMAGE NEEDED: Level 3 correct breadboard layout (shown after 2 failed checks)
   desc:"Outer terminals → 5 V and GND; middle wiper → A1"},
 
  {level:4,title:"Resistors in Series",
   info:"Resistors are in series when they form one path, so the same current passes through each. For resistors in series, R_total = R1 + R2. Two 1-kilohm resistors in series have an equivalent resistance of 2 kilohms.",
   parts:"2 × 1-kilohm resistors; fixed 10-kilohm reference resistor in the tester",
   img:"images/level4_resistors_series_schematic.png",   // IMAGE NEEDED: Level 4 schematic
+  bb:"images/level4_breadboard_layout.png",   // IMAGE NEEDED: Level 4 correct breadboard layout (shown after 2 failed checks)
   desc:"5 V → fixed 10-kilohm resistor → A2 → two 1-kilohm series network → GND"},
   
  {level:5,title:"Resistors in Parallel",
   info:"Resistors are in parallel when both ends of each resistor connect to the same two nodes. For two equal resistors in parallel, the equivalent resistance is half either resistor. Two 1-kilohm resistors in parallel have an equivalent resistance of 500 ohms.",
   parts:"2 × 1-kilohm resistors; fixed 10-kilohm reference resistor in the tester",
   img:"images/level5_resistors_parallel_schematic.png", // IMAGE NEEDED: Level 5 schematic
+  bb:"images/level5_breadboard_layout.png",   // IMAGE NEEDED: Level 5 correct breadboard layout (shown after 2 failed checks)
   desc:"5 V → fixed 10-kilohm resistor → A2 → two 1-kilohm parallel network → GND"}
 ];
 
@@ -312,7 +318,7 @@ async function resistors(series){
   return bad("NOT YET: The reading is outside both expected ranges. Check for loose wires, an open circuit, a short, or the wrong resistor values.")}
 
 // ------------------------- Game flow (mirrors main() in the C++ version) -------------------------
-let score=0,got=[];
+let score=0,got=[],fails=[]; // fails[i] = failed checks of level i (communication errors don't count)
 const QUIT="quit";
 function paint(){$("#mode").textContent=tester.desc();$("#score").textContent=`Score ${score} / 500`;
   [...$("#dots").children].forEach((d,i)=>d.classList.toggle("lit",!!got[i]))}
@@ -348,8 +354,15 @@ function renderLevel(c){
     <!-- <div class="slot" data-src="${c.bb}" data-alt="Optional breadboard layout / pinout for level ${c.level}"></div> -->
     <p class="note">Tester: ${tester.desc()}. Build the circuit, then check it.</p>`}
 
+// Reveals the correct breadboard layout. Offered after two failed checks of the same level.
+function showAnswer(c){
+  const d=document.createElement("div");d.className="ans";
+  // IMAGE NEEDED: c.bb - correct breadboard layout for this level (paths are listed in the CH array above)
+  d.innerHTML=`<h3>Correct answer: ${c.title}</h3><div class="slot" data-src="${c.bb}" data-alt="Correct breadboard layout for level ${c.level}"></div><p class="cap">Wiring: ${c.desc}</p>`;
+  $("#log").append(d);hydrate(d);d.scrollIntoView({block:"nearest"})}
+
 async function play(){
-  score=0;got=[];paint();let i=0,back=false;
+  score=0;got=[];fails=[];paint();let i=0,back=false;
   for(const id of["intro1","intro2","intro3","intro4"]){
     if(id==="intro3")$("#how-mode").textContent=tester.sim?"Current mode: readings are typed manually for testing the game logic.":"Current mode: measurements are requested from the Arduino over USB serial.";
     await next(id)}
@@ -362,7 +375,12 @@ async function play(){
         if(!got[i]){score+=100;got[i]=1;msg="+100 points!"}else msg="You have already earned points for this level in this session.";
         paint();log(msg+` Current score: ${score} / 500`,"ok");await pause()}
       else{if(r==="err")log("The measurement could not be completed.","bad");
-        if(!await ask($("#ctl"),[[r==="err"?"Retry this level":"Try this level again",1,"pri"],["Return to title screen",0]]))back=true}}
+        if(r==="fail")fails[i]=(fails[i]||0)+1;
+        const opts=[[r==="err"?"Retry this level":"Try this level again",1,"pri"],["Return to title screen",0]];
+        if(fails[i]>=2)opts.splice(1,0,["Show correct answer","show"]);
+        let pick=await ask($("#ctl"),opts);
+        if(pick==="show"){showAnswer(c);pick=await ask($("#ctl"),[["Try this level again",1,"pri"],["Return to title screen",0]])}
+        if(!pick)back=true}}
     if(back)break;
     const last=i+1===CH.length;
     $("#done-title").textContent="Level complete: "+c.title;
