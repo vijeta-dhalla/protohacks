@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WireSmart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,400..900&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   WIRESMART: a beginner-friendly breadboard wiring game
+   (HTML conversion of the C++ console game, formerly "Circuit Quest")
+   Arduino firmware: CircuitQuestArduino.ino (9600 baud, unchanged)
+   Serial protocol: PING -> PONG | READ:LED -> LED,<0..1023>
+   READ:BUTTON -> BUTTON,<0|1> | READ:POT -> POT,<0..1023>
+   READ:RESISTORS -> RESISTORS,<0..1023>
+   Images: put PNGs in an "images" folder next to this file.
+   ============================================================ */
+:root{
+  /* ---------- TITLE SCREEN COLOURS (what each value corresponds to) ---------- */
+  --board:#eceff1;    /* light grey-white  = plastic body of a solderless breadboard (hero + title plate) */
+  --hole:#aeb7bf;     /* mid grey          = the tie-point holes punched in the breadboard (dot grid) */
+  --rail-pos:#d62839; /* red               = positive (+) rail stripe, i.e. the 5 V power line */
+  --rail-neg:#1d5fd1; /* blue              = negative (-) rail stripe, i.e. the GND line */
+  --wire:#f2b705;     /* yellow            = the jumper wire that draws itself across the title */
+  --led:#ff3b3b;      /* bright red        = the red LED (Level 1) at the end of the wire, lit */
+  --led-off:#7a2330;  /* dark maroon       = the same LED before it lights up */
+  --ink:#17202a;      /* dark blue-black   = title lettering, body text and primary buttons */
+  /* ---------- IN-GAME COLOURS (not on the title screen) ---------- */
+  --page:#fbfcfd;     /* cool white page background */
+  --muted:#56616c;    /* grey text for captions and placeholders */
+  --ok:#1f7a45;       /* green = PASS messages */
+  --bad:#b3261e;      /* deep red = NOT YET / error messages */
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--page);color:var(--ink);font:1.05rem/1.55 "Atkinson Hyperlegible",system-ui,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:.75rem 1.5rem;align-items:center;justify-content:space-between;padding:.75rem 1.25rem;border-bottom:1px solid #dde2e6}
+.mark{font:800 1.3rem "Archivo",sans-serif;font-stretch:125%}
+.meta{display:flex;gap:1rem;align-items:center;font-size:.9rem;color:var(--muted)}
+.dots{display:flex;gap:6px}.dots i{width:12px;height:12px;border-radius:50%;background:var(--hole)}.dots i.lit{background:var(--led)}
+main{max-width:44rem;margin:0 auto;padding:1.5rem 1.25rem 4rem}
+h1,h2,h3{font-family:"Archivo",sans-serif;line-height:1.1;margin:1.4em 0 .5em}
+h2{font-size:1.7rem;margin-top:.2em}h3{font-size:1.1rem}
+ul{padding-left:1.2rem}li{margin:.25em 0}
+.acts{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.5rem}
+button{font:700 1rem "Atkinson Hyperlegible",sans-serif;min-height:44px;padding:.5rem 1.1rem;border-radius:8px;border:2px solid var(--ink);background:#fff;color:var(--ink);cursor:pointer}
+button.pri{background:var(--ink);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--rail-neg);outline-offset:2px}
+input{font:inherit;min-height:44px;padding:.4rem .6rem;width:9rem;border:2px solid var(--ink);border-radius:8px}
+.note{color:var(--muted);font-size:.95rem}
+.err{color:var(--bad);white-space:pre-line}
+/* image blocks: dashed placeholder until the PNG exists, then the PNG replaces it */
+.slot{display:grid;place-items:center;text-align:center;min-height:150px;margin:1rem 0;padding:1rem;border:2px dashed var(--hole);border-radius:10px;background:#f4f6f7;color:var(--muted);font-size:.9rem}
+.slot img{display:block;max-width:100%;height:auto}
+.slot.ok{border:0;padding:0;min-height:0;background:none}.slot.ok .ph{display:none}
+.cap{margin:-.4rem 0 1rem;font-size:.95rem;color:var(--muted)}
+.ln{margin:.45rem 0}.ln.ok{color:var(--ok);font-weight:700}.ln.bad{color:var(--bad);font-weight:700}
+form.q{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1rem}
+/* title screen: breadboard hero */
+.hero{padding:2.5rem 1.25rem 1.5rem;border-radius:12px;border-top:9px solid var(--rail-pos);border-bottom:9px solid var(--rail-neg);background:radial-gradient(var(--hole) 2.2px,transparent 2.7px) 0 0/18px 18px,var(--board)}
+.hero h1{display:inline-block;margin:0;padding:.05em .25em;background:var(--board);font-size:clamp(2.6rem,11vw,5.2rem);font-weight:800;font-stretch:125%}
+.jumper{display:block;width:min(100%,26rem);margin-top:.5rem}
+.jumper path{fill:none;stroke:var(--wire);stroke-width:6;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.1s .3s ease-out forwards}
+.jumper circle{fill:var(--led-off);animation:glow .3s 1.4s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes glow{to{fill:var(--led);filter:drop-shadow(0 0 7px var(--led))}}
+@media(prefers-reduced-motion:reduce){.jumper path{animation:none;stroke-dashoffset:0}.jumper circle{animation:none;fill:var(--led)}}
+</style>
+</head>
+<body>
+<header>
+  <span class="mark">WireSmart</span>
+  <div class="meta"><span id="mode">Not connected</span><span id="score">Score 0 / 500</span><span class="dots" id="dots" title="Levels passed"><i></i><i></i><i></i><i></i><i></i></span></div>
+</header>
+<main>
+
+<!-- CONNECTION MODE (was chooseConnectionMode) -->
+<section class="screen" id="connect">
+  <h2>Connect WireSmart to your tester</h2>
+  <p>Use a physical Arduino over USB, or type sample readings in simulation mode.</p>
+  <p class="note" id="conn-note"></p>
+  <p class="err" id="conn-err"></p>
+  <div class="acts" id="conn-actions"></div>
+</section>
+
+<!-- TITLE SCREEN -->
+<section class="screen" id="title" hidden>
+  <div class="hero">
+    <h1>WireSmart</h1>
+    <svg class="jumper" viewBox="0 0 400 60" aria-hidden="true"><path d="M10 50C80-10 160-10 230 40S330 50 372 24" pathLength="1"/><circle cx="381" cy="22" r="9"/></svg>
+  </div>
+  <p>A beginner-friendly breadboard wiring game</p>
+  <p class="note" id="title-mode"></p>
+  <!-- IMAGE NEEDED: images/wiresmart_title.png - title illustration / logo (was images/circuit_quest_title.png) -->
+  <div class="slot" data-src="images/wiresmart_title.png" data-alt="Title illustration or logo"></div>
+  <div class="acts" id="title-actions"></div>
+</section>
+
+<section class="screen" id="intro1" hidden>
+  <h2>Intro 1 of 4: How a breadboard works</h2>
+  <p>A solderless breadboard lets you build circuits without soldering.</p>
+  <ul><li>Many five-hole groups in the centre are connected internally.</li><li>The centre gap separates the two sides of the board.</li><li>Long side rails are commonly used for power (5 V) and ground (GND).</li><li>Components work only when their leads connect to the intended nodes.</li></ul>
+  <!-- IMAGE NEEDED: images/breadboard_connections.png - labeled diagram of connected rows, centre gap and power rails -->
+  <div class="slot" data-src="images/breadboard_connections.png" data-alt="Labeled breadboard: connected rows, centre gap, power rails"></div>
+  <div class="acts"><button class="pri next">Continue</button></div>
+</section>
+
+<section class="screen" id="intro2" hidden>
+  <h2>Intro 2 of 4: Voltage, current, and Ohm’s law</h2>
+  <p>Voltage is electrical potential difference. Current is the flow of charge. Resistance opposes current. Ohm’s law is V = I × R.</p>
+  <p>You can rearrange it to I = V / R or R = V / I. Example: 2 V across 1 kilohm gives I = 2/1000 A = 2 mA.</p>
+  <p>The Arduino measures voltage or digital state; the game compares the measurements with the expected range or behaviour for each challenge.</p>
+  <!-- IMAGE NEEDED: images/ohms_law_diagram.png - Ohm's law triangle/equation plus a voltage divider diagram -->
+  <div class="slot" data-src="images/ohms_law_diagram.png" data-alt="Ohm’s law triangle and voltage divider diagram"></div>
+  <div class="acts"><button class="pri next">Continue</button></div>
+</section>
+
+<section class="screen" id="intro3" hidden>
+  <h2>Intro 3 of 4: How WireSmart works</h2>
+  <ol><li>Read the component information and inspect the target schematic.</li><li>Build the circuit on the physical breadboard.</li><li>Select Check circuit. The tester reads the assigned Arduino pin.</li><li>The program compares the result with the expected behaviour.</li><li>If the circuit passes, earn points and repeat or advance.</li></ol>
+  <p><b id="how-mode"></b></p>
+  <!-- IMAGE NEEDED: images/how_the_game_works.png - illustration of schematic -> breadboard -> feedback -->
+  <div class="slot" data-src="images/how_the_game_works.png" data-alt="Schematic, then breadboard, then feedback"></div>
+  <div class="acts"><button class="pri next">Continue</button></div>
+</section>
+
+<section class="screen" id="intro4" hidden>
+  <h2>Intro 4 of 4: Your parts kit</h2>
+  <ul><li>Arduino Uno and USB cable</li><li>Solderless breadboard and jumper wires</li><li>Red LED and 330-ohm resistor</li><li>Tactile pushbutton</li><li>10-kilohm potentiometer</li><li>Two 1-kilohm resistors for series/parallel challenges</li><li>Fixed 10-kilohm reference resistor in the tester</li></ul>
+  <p>Keep the tester’s 5 V, GND, and sensing leads fixed. Do not connect external voltages to the Arduino analog inputs.</p>
+  <!-- IMAGE NEEDED: images/parts_kit.png - component photos/icons for the learner's parts kit -->
+  <div class="slot" data-src="images/parts_kit.png" data-alt="Photos or icons of the parts kit"></div>
+  <div class="acts"><button class="pri next">Continue</button></div>
+</section>
+
+<!-- CHALLENGE INFO (filled by renderLevel) -->
+<section class="screen" id="level" hidden>
+  <h2 id="level-title"></h2>
+  <div id="level-body"></div>
+  <div class="acts" id="level-actions"></div>
+</section>
+
+<!-- CHECK CIRCUIT: readings and messages appear in order, like the console version -->
+<section class="screen" id="check" hidden>
+  <h2 id="check-title"></h2>
+  <div id="log"></div>
+  <div id="ctl" class="acts"></div>
+</section>
+
+<section class="screen" id="done" hidden>
+  <h2 id="done-title"></h2>
+  <p id="done-msg"></p>
+  <div class="acts" id="done-actions"></div>
+</section>
+
+<section class="screen" id="end" hidden>
+  <h2>Thank you for playing WireSmart!</h2>
+  <p>You completed the available WireSmart session.</p>
+  <p><b id="final">Final score: 0 / 500 points</b></p>
+  <p>More levels coming soon!</p>
+  <!-- IMAGE NEEDED: images/end_screen.png - completion / trophy illustration -->
+  <div class="slot" data-src="images/end_screen.png" data-alt="Completion or trophy illustration"></div>
+  <div class="acts" id="end-actions"></div>
+</section>
+
+<section class="screen" id="bye" hidden>
+  <h2>Thanks for playing WireSmart!</h2>
+  <div class="acts"><button class="pri" id="again">Play again</button></div>
+</section>
+
+</main>
+<script>
+"use strict";
+// ------------------------- Challenges -------------------------
+// Each level needs two images. The first path comes from the original game;
+// the "breadboard" path is a suggested name (the C++ only said "optional pinout/breadboard image").
+const CH=[
+ {level:1,title:"LED Polarity",
+  info:"An LED is polarized: current flows through it most easily in one direction. The longer leg is usually the anode (+); the shorter leg / flat edge marks the cathode (-). A series resistor limits current and helps protect the LED.",
+  parts:"1 red LED, 1 × 330-ohm resistor, jumper wires",
+  img:"images/level1_led_schematic.png",            // IMAGE NEEDED: Level 1 schematic
+  bb:"images/level1_breadboard_layout.png",         // IMAGE NEEDED (optional): Level 1 breadboard/pinout
+  desc:"5 V → 330-ohm resistor → A0 test junction → LED → GND"},
+ {level:2,title:"Pushbutton",
+  info:"A pushbutton temporarily connects two electrical contacts when pressed. On common four-leg tactile buttons, the two legs on each side are internally connected. This challenge uses INPUT_PULLUP: the input reads HIGH when released and LOW when pressed.",
+  parts:"1 tactile pushbutton, jumper wires",
+  img:"images/level2_button_schematic.png",         // IMAGE NEEDED: Level 2 schematic
+  bb:"images/level2_breadboard_layout.png",         // IMAGE NEEDED (optional): Level 2 breadboard/pinout
+  desc:"Arduino D2 → pushbutton → GND; configure D2 as INPUT_PULLUP"},
+ {level:3,title:"Potentiometer",
+  info:"A potentiometer is a three-terminal variable resistor. Its middle terminal (the wiper) moves between the two outer terminals, changing the output voltage. Potentiometers are used in volume controls, dimmers, and position adjustment.",
+  parts:"1 × 10-kilohm potentiometer, jumper wires",
+  img:"images/level3_potentiometer_schematic.png",  // IMAGE NEEDED: Level 3 schematic
+  bb:"images/level3_breadboard_layout.png",         // IMAGE NEEDED (optional): Level 3 breadboard/pinout
+  desc:"Outer terminals → 5 V and GND; middle wiper → A1"},
+ {level:4,title:"Resistors in Series",
+  info:"Resistors are in series when they form one path, so the same current passes through each. For resistors in series, R_total = R1 + R2. Two 1-kilohm resistors in series have an equivalent resistance of 2 kilohms.",
+  parts:"2 × 1-kilohm resistors; fixed 10-kilohm reference resistor in the tester",
+  img:"images/level4_resistors_series_schematic.png",   // IMAGE NEEDED: Level 4 schematic
+  bb:"images/level4_breadboard_layout.png",             // IMAGE NEEDED (optional): Level 4 breadboard/pinout
+  desc:"5 V → fixed 10-kilohm resistor → A2 → two 1-kilohm series network → GND"},
+ {level:5,title:"Resistors in Parallel",
+  info:"Resistors are in parallel when both ends of each resistor connect to the same two nodes. For two equal resistors in parallel, the equivalent resistance is half either resistor. Two 1-kilohm resistors in parallel have an equivalent resistance of 500 ohms.",
+  parts:"2 × 1-kilohm resistors; fixed 10-kilohm reference resistor in the tester",
+  img:"images/level5_resistors_parallel_schematic.png", // IMAGE NEEDED: Level 5 schematic
+  bb:"images/level5_breadboard_layout.png",             // IMAGE NEEDED (optional): Level 5 breadboard/pinout
+  desc:"5 V → fixed 10-kilohm resistor → A2 → two 1-kilohm parallel network → GND"}
+];
+
+// ------------------------- UI helpers -------------------------
+const $=s=>document.querySelector(s), sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const show=id=>{document.querySelectorAll(".screen").forEach(s=>s.hidden=s.id!==id);scrollTo(0,0);hydrate($("#"+id))};
+// Image blocks: shows a dashed placeholder; if the PNG exists at data-src it replaces the placeholder.
+function hydrate(root){root.querySelectorAll(".slot:not([data-h])").forEach(s=>{s.dataset.h=1;
+  const i=new Image();i.alt=s.dataset.alt;i.onload=()=>s.classList.add("ok");i.onerror=()=>i.remove();i.src=s.dataset.src;s.append(i);
+  const p=document.createElement("span");p.className="ph";p.innerHTML=`Insert PNG here<br><b>${s.dataset.src}</b><br>${s.dataset.alt}`;s.append(p)})}
+// Show buttons in a container; resolves with the value of the one clicked. Option: [label, value, class, disabled]
+const ask=(box,opts)=>new Promise(res=>{box.innerHTML="";opts.forEach(([t,v,c,d])=>{const b=document.createElement("button");b.textContent=t;b.className=c||"";b.disabled=!!d;b.onclick=()=>{box.innerHTML="";res(v)};box.append(b)})});
+const next=id=>{show(id);return new Promise(r=>$("#"+id+" .next").onclick=r)};
+const log=(t,k="")=>{const p=document.createElement("p");p.className="ln "+k;p.textContent=t;$("#log").append(p)};
+const head=t=>{$("#check-title").textContent=t;$("#log").innerHTML="";$("#ctl").innerHTML=""};
+const pause=()=>ask($("#ctl"),[["Continue",1,"pri"]]);
+// Replaces readIntInRange: asks for a whole number in range
+const askInt=(prompt,lo,hi)=>new Promise(res=>{const box=$("#ctl");box.innerHTML="";
+  const f=document.createElement("form");f.className="q";f.innerHTML=`<label>${prompt} <input type="number" step="1" min="${lo}" max="${hi}" required></label><button class="pri">Submit</button><span class="err"></span>`;
+  f.onsubmit=e=>{e.preventDefault();const t=f.querySelector("input").value.trim(),v=Number(t);
+    if(!/^-?\d+$/.test(t)||v<lo||v>hi){f.querySelector(".err").textContent=`Please enter a whole number from ${lo} to ${hi}.`;return}
+    box.innerHTML="";log(`${prompt} ${v}`);res(v)};
+  box.append(f);f.querySelector("input").focus()});
+
+// ------------------------- Serial (Web Serial replaces the POSIX serial class) -------------------------
+const ser={p:null,rx:"",wake:null,
+  async open(p){this.p=p;await p.open({baudRate:9600});this.rx="";this.w=p.writable.getWriter();this.r=p.readable.getReader();const d=new TextDecoder();
+    this.loop=(async()=>{try{for(;;){const{value,done}=await this.r.read();if(done)break;this.rx+=d.decode(value);if(this.rx.length>2048)this.rx=this.rx.slice(-1024);this.wake&&this.wake()}}catch(e){}})()},
+  write(line){return this.w.write(new TextEncoder().encode(line+"\n"))},
+  async line(ms){const end=Date.now()+ms;for(;;){const i=this.rx.indexOf("\n");if(i>=0){const l=this.rx.slice(0,i).replace(/\r$/,"");this.rx=this.rx.slice(i+1);return l}
+    const left=end-Date.now();if(left<=0)return"";await new Promise(r=>{const t=setTimeout(r,left);this.wake=()=>{clearTimeout(t);r()}})}},
+  async close(){if(!this.p)return;try{await this.r.cancel();await this.loop;this.r.releaseLock();this.w.releaseLock();await this.p.close()}catch(e){}this.p=null}};
+
+const tester={sim:true,name:"",
+  desc(){return this.sim?"Simulation mode (manual readings)":`Arduino connected (${this.name})`},
+  async connect(){ // must be called from a click: opens the browser's port picker
+    const port=await navigator.serial.requestPort(),i=port.getInfo();
+    this.name=i.usbVendorId?`USB ${i.usbVendorId.toString(16).padStart(4,"0")}:${(i.usbProductId||0).toString(16).padStart(4,"0")}`:"serial device";
+    await ser.open(port);
+    await sleep(2500); ser.rx=""; // opening a Uno's serial port resets it; wait for the sketch, discard READY
+    let last="";
+    for(let a=0;a<5;a++){
+      try{await ser.write("PING")}catch(e){await sleep(200);continue}
+      const end=Date.now()+1500;
+      while(Date.now()<end){const l=await ser.line(Math.max(1,Math.min(250,end-Date.now())));if(!l)continue;last=l;if(l==="PONG"){this.sim=false;return}}
+      await sleep(200)}
+    await ser.close();
+    throw new Error(last?`The serial port opened and the Arduino sent '${last}', but it did not answer PING with PONG.\nThis usually means a different sketch is uploaded or the serial protocol does not match.\nUpload CircuitQuestArduino.ino (9600 baud), then close Serial Monitor.`
+      :"The serial port opened, but no serial response was received for PING.\nCheck the selected port, upload CircuitQuestArduino.ino, use 9600 baud, and close Serial Monitor/Plotter.")},
+  async useSim(){await ser.close();this.sim=true},
+  async analog(cmd,label){
+    if(this.sim)return askInt(`Enter simulated ${label} ADC reading (0-1023):`,0,1023);
+    // The Arduino replies with a measurement tag (e.g. "LED,420"), not the pin label (e.g. "A0").
+    const tag={"READ:LED":"LED","READ:POT":"POT","READ:RESISTORS":"RESISTORS"}[cmd];
+    if(!tag){log("Unsupported analog measurement command: "+cmd,"bad");return null}
+    return this.request(cmd,tag,0,1023)},
+  async button(){return this.sim?askInt("Enter simulated button state (1=HIGH, 0=LOW):",0,1):this.request("READ:BUTTON","BUTTON",0,1)},
+  async request(cmd,tag,lo,hi){
+    try{await ser.write(cmd)}catch(e){log("Serial connection error: "+e.message,"bad");return null}
+    const end=Date.now()+1800;
+    while(Date.now()<end){const l=await ser.line(Math.max(1,end-Date.now()));if(!l)break;
+      if(l.startsWith("ERR,")){log("Arduino reported: "+l,"bad");return null}
+      if(l.startsWith(tag+",")){const n=l.slice(tag.length+1),v=Number(n);
+        if(!/^-?\d+$/.test(n)||v<lo||v>hi){log("Invalid value from Arduino: "+l,"bad");return null}
+        log("Arduino measurement: "+v);return v}}
+    log("No valid response from Arduino. Check the USB connection and uploaded firmware.","bad");return null}};
+
+// ------------------------- Verification routines -------------------------
+const bad=t=>{log(t,"bad");return"fail"}, good=t=>{log(t,"ok");return"pass"};
+const checks={
+ 1:async()=>{head("Check circuit: LED polarity");
+  log("Measuring A0. Example circuit: 5 V → 330 ohms → A0 → LED → GND.");
+  const r=await tester.analog("READ:LED","A0");if(r==null)return"err";
+  // Initial calibration range for a typical red LED, 330-ohm resistor and nominal 5 V Uno supply. Verify with your components.
+  if(r>=320&&r<=500)return good("PASS: The reading is consistent with a forward-biased red LED.");
+  return bad(r>=800?"NOT YET: The node is near 5 V. Check LED polarity or connections.":"NOT YET: The reading is outside the expected range. Check the LED and resistor.")},
+ 2:async()=>{head("Check circuit: pushbutton");
+  log("This test uses INPUT_PULLUP: released = HIGH (1), pressed = LOW (0).");
+  log("Make sure the button is NOT pressed.");await pause();
+  const a=await tester.button();if(a==null)return"err";
+  log("Now press and HOLD the button.");await pause();
+  const b=await tester.button();if(b==null)return"err";
+  log(`Released reading: ${a} | Pressed reading: ${b}`);
+  if(a===1&&b===0)return good("PASS: The input changes as expected.");
+  return bad("NOT YET: Expected HIGH when released and LOW when pressed. Check the wiring.")},
+ 3:async()=>{head("Check circuit: potentiometer");
+  log("Measure the middle terminal (wiper) at A1. Turn the knob to one end of its range before the first reading.");await pause();
+  const a=await tester.analog("READ:POT","A1 first");if(a==null)return"err";
+  log("Now rotate the knob substantially toward the other end of its range.");await pause();
+  const b=await tester.analog("READ:POT","A1 second");if(b==null)return"err";
+  const d=Math.abs(b-a);log(`First reading: ${a} | Second reading: ${b} | Change: ${d} counts`);
+  if(d>=300)return good("PASS: The wiper voltage changes substantially as the knob turns.");
+  return bad("NOT YET: The reading changed too little. Rotate farther and check the wiper connection.")},
+ 4:()=>resistors(true), 5:()=>resistors(false)};
+async function resistors(series){
+  head("Check circuit: "+(series?"series":"parallel")+" resistors");
+  log("Measure A2. The tester has a fixed 10-kilohm resistor from 5 V to A2. The two student resistors connect between A2 and GND.");
+  log("Two 1-kilohm resistors in series should read around 170 ADC counts; two in parallel should read around 49 counts on a typical 5 V Uno.");
+  const r=await tester.analog("READ:RESISTORS","A2");if(r==null)return"err";
+  const isS=r>=145&&r<=195, isP=r>=30&&r<=70;
+  if(series&&isS)return good("PASS: The reading matches the series configuration.");
+  if(!series&&isP)return good("PASS: The reading matches the parallel configuration.");
+  if(series&&isP)return bad("NOT YET: The reading looks like the parallel configuration. Check whether the two resistors are connected end-to-end.");
+  if(!series&&isS)return bad("NOT YET: The reading looks like the series configuration. For parallel, both resistors must share the same two nodes.");
+  return bad("NOT YET: The reading is outside both expected ranges. Check for loose wires, an open circuit, a short, or the wrong resistor values.")}
+
+// ------------------------- Game flow (mirrors main() in the C++ version) -------------------------
+let score=0,got=[];
+const QUIT="quit";
+function paint(){$("#mode").textContent=tester.desc();$("#score").textContent=`Score ${score} / 500`;
+  [...$("#dots").children].forEach((d,i)=>d.classList.toggle("lit",!!got[i]))}
+
+async function chooseMode(){
+  show("connect");$("#conn-err").textContent="";
+  const ok="serial" in navigator;
+  $("#conn-note").textContent=ok?"":"This browser can’t talk to USB serial devices. Use Chrome or Edge on a computer for an Arduino, or run in simulation mode.";
+  for(;;){
+    const c=await ask($("#conn-actions"),[["Connect to a physical Arduino over USB serial","ard","pri",!ok],["Run in simulation mode (type sample readings)","sim"]]);
+    if(c==="sim"){await tester.useSim();paint();return true}
+    try{await tester.connect();paint();return true}
+    catch(e){
+      if(e.name==="NotFoundError")continue; // port picker cancelled
+      $("#conn-err").textContent="Could not connect: "+e.message+"\nCheck the selected port, close Arduino Serial Monitor, and upload the matching .ino file.";
+      if(await ask($("#conn-actions"),[["Use simulation mode instead",1,"pri"],["Quit",0]])){await tester.useSim();paint();return true}
+      return false}}}
+
+async function title(){
+  for(;;){
+    show("title");$("#title-mode").textContent="Connection: "+tester.desc();
+    const c=await ask($("#title-actions"),[["Start game",1,"pri"],["Change connection","conn"],["Quit",0]]);
+    if(c==="conn"){if(!await chooseMode())return false;continue}
+    return !!c}}
+
+function renderLevel(c){
+  $("#level-title").textContent=`Level ${c.level}: ${c.title}`;
+  // IMAGE NEEDED: c.img (schematic) and c.bb (optional breadboard/pinout) - paths are listed in the CH array above
+  $("#level-body").innerHTML=`<h3>About this component or concept</h3><p>${c.info}</p>
+    <div class="slot" data-src="${c.img}" data-alt="Schematic for level ${c.level}: ${c.title}"></div>
+    <p class="cap">Schematic summary: ${c.desc}</p>
+    <h3>Components for this level</h3><p>${c.parts}</p>
+    <div class="slot" data-src="${c.bb}" data-alt="Optional breadboard layout / pinout for level ${c.level}"></div>
+    <p class="note">Tester: ${tester.desc()}. Build the circuit, then check it.</p>`}
+
+async function play(){
+  score=0;got=[];paint();let i=0,back=false;
+  for(const id of["intro1","intro2","intro3","intro4"]){
+    if(id==="intro3")$("#how-mode").textContent=tester.sim?"Current mode: readings are typed manually for testing the game logic.":"Current mode: measurements are requested from the Arduino over USB serial.";
+    await next(id)}
+  while(i<CH.length&&!back){
+    const c=CH[i];let passed=false,msg="";
+    while(!passed&&!back){
+      renderLevel(c);show("level");await ask($("#level-actions"),[["Check my circuit",1,"pri"]]);
+      show("check");const r=await checks[c.level]();
+      if(r==="pass"){passed=true;
+        if(!got[i]){score+=100;got[i]=1;msg="+100 points!"}else msg="You have already earned points for this level in this session.";
+        paint();log(msg+` Current score: ${score} / 500`,"ok");await pause()}
+      else{if(r==="err")log("The measurement could not be completed.","bad");
+        if(!await ask($("#ctl"),[[r==="err"?"Retry this level":"Try this level again",1,"pri"],["Return to title screen",0]]))back=true}}
+    if(back)break;
+    const last=i+1===CH.length;
+    $("#done-title").textContent="Level complete: "+c.title;
+    $("#done-msg").textContent=last?"All five levels completed!":"";
+    show("done");
+    const ch=await ask($("#done-actions"),[[last?"Finish game and view the end screen":"Next level",1,"pri"],["Replay this level",2],["Quit game",0]]);
+    if(ch===0)throw QUIT;
+    if(ch===1){
+      if(!last)i++;
+      else{$("#final").textContent=`Final score: ${score} / 500 points`;show("end");
+        if(!await ask($("#end-actions"),[["Return to title screen",1,"pri"],["Quit game",0]]))throw QUIT;
+        back=true}}}}
+
+async function main(){
+  try{
+    if(!await chooseMode())throw QUIT;
+    while(await title())await play();
+  }catch(e){if(e!==QUIT)throw e}
+  await tester.useSim();paint();show("bye");
+}
+$("#again").onclick=main;
+main();
+</script>
+</body>
+</html>
