@@ -94,7 +94,7 @@ form.q{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1rem}
   <p>A beginner-friendly breadboard wiring game</p>
   <p class="note" id="title-mode"></p>
   <!-- IMAGE NEEDED: images/wiresmart_title.png - title illustration / logo (was images/circuit_quest_title.png) -->
-  <div class="slot" data-src="images/wiresmart_title.png" data-alt="Title illustration or logo"></div>
+  <!-- <div class="slot" data-src="images/wiresmart_title.png" data-alt="Title illustration or logo"></div> -->
   <div class="acts" id="title-actions"></div>
 </section>
 
@@ -181,31 +181,30 @@ const CH=[
   info:"An LED is polarized: current flows through it most easily in one direction. The longer leg is usually the anode (+); the shorter leg / flat edge marks the cathode (-). A series resistor limits current and helps protect the LED.",
   parts:"1 red LED, 1 × 330-ohm resistor, jumper wires",
   img:"images/level1_led_schematic.png",            // IMAGE NEEDED: Level 1 schematic
-  bb:"images/level1_breadboard_layout.png",         // IMAGE NEEDED (optional): Level 1 breadboard/pinout
   desc:"5 V → 330-ohm resistor → A0 test junction → LED → GND"},
+
  {level:2,title:"Pushbutton",
   info:"A pushbutton temporarily connects two electrical contacts when pressed. On common four-leg tactile buttons, the two legs on each side are internally connected. This challenge uses INPUT_PULLUP: the input reads HIGH when released and LOW when pressed.",
   parts:"1 tactile pushbutton, jumper wires",
   img:"images/level2_button_schematic.png",         // IMAGE NEEDED: Level 2 schematic
-  bb:"images/level2_breadboard_layout.png",         // IMAGE NEEDED (optional): Level 2 breadboard/pinout
   desc:"Arduino D2 → pushbutton → GND; configure D2 as INPUT_PULLUP"},
+ 
  {level:3,title:"Potentiometer",
   info:"A potentiometer is a three-terminal variable resistor. Its middle terminal (the wiper) moves between the two outer terminals, changing the output voltage. Potentiometers are used in volume controls, dimmers, and position adjustment.",
   parts:"1 × 10-kilohm potentiometer, jumper wires",
   img:"images/level3_potentiometer_schematic.png",  // IMAGE NEEDED: Level 3 schematic
-  bb:"images/level3_breadboard_layout.png",         // IMAGE NEEDED (optional): Level 3 breadboard/pinout
   desc:"Outer terminals → 5 V and GND; middle wiper → A1"},
+
  {level:4,title:"Resistors in Series",
   info:"Resistors are in series when they form one path, so the same current passes through each. For resistors in series, R_total = R1 + R2. Two 1-kilohm resistors in series have an equivalent resistance of 2 kilohms.",
   parts:"2 × 1-kilohm resistors; fixed 10-kilohm reference resistor in the tester",
   img:"images/level4_resistors_series_schematic.png",   // IMAGE NEEDED: Level 4 schematic
-  bb:"images/level4_breadboard_layout.png",             // IMAGE NEEDED (optional): Level 4 breadboard/pinout
   desc:"5 V → fixed 10-kilohm resistor → A2 → two 1-kilohm series network → GND"},
+  
  {level:5,title:"Resistors in Parallel",
   info:"Resistors are in parallel when both ends of each resistor connect to the same two nodes. For two equal resistors in parallel, the equivalent resistance is half either resistor. Two 1-kilohm resistors in parallel have an equivalent resistance of 500 ohms.",
   parts:"2 × 1-kilohm resistors; fixed 10-kilohm reference resistor in the tester",
   img:"images/level5_resistors_parallel_schematic.png", // IMAGE NEEDED: Level 5 schematic
-  bb:"images/level5_breadboard_layout.png",             // IMAGE NEEDED (optional): Level 5 breadboard/pinout
   desc:"5 V → fixed 10-kilohm resistor → A2 → two 1-kilohm parallel network → GND"}
 ];
 
@@ -346,7 +345,7 @@ function renderLevel(c){
     <div class="slot" data-src="${c.img}" data-alt="Schematic for level ${c.level}: ${c.title}"></div>
     <p class="cap">Schematic summary: ${c.desc}</p>
     <h3>Components for this level</h3><p>${c.parts}</p>
-    <div class="slot" data-src="${c.bb}" data-alt="Optional breadboard layout / pinout for level ${c.level}"></div>
+    <!-- <div class="slot" data-src="${c.bb}" data-alt="Optional breadboard layout / pinout for level ${c.level}"></div> -->
     <p class="note">Tester: ${tester.desc()}. Build the circuit, then check it.</p>`}
 
 async function play(){
