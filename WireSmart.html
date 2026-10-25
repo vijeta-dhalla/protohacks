@@ -10,7 +10,7 @@
 /* ============================================================
    WIRESMART: a beginner-friendly breadboard wiring game
    (HTML conversion of the C++ console game, formerly "Circuit Quest")
-   Arduino firmware: CircuitQuestArduino.ino (9600 baud, unchanged)
+   Arduino firmware: CircuitQuestArduino.ino (9600 baud; firmware v2 adds VERSION, PROBE and FLOAT replies)
    Serial protocol: PING -> PONG | READ:LED -> LED,<0..1023>
    READ:BUTTON -> BUTTON,<0|1> | READ:POT -> POT,<0..1023>
    READ:RESISTORS -> RESISTORS,<0..1023>
@@ -51,6 +51,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
 input{font:inherit;min-height:44px;padding:.4rem .6rem;width:9rem;border:2px solid var(--ink);border-radius:8px}
 .note{color:var(--muted);font-size:.95rem}
 .err{color:var(--bad);white-space:pre-line}
+#sel-list{flex-direction:column;align-items:stretch}
+button.lvl{text-align:left}
+.dots i.skip{background:none;box-shadow:inset 0 0 0 2px var(--hole)}
 /* image blocks: dashed placeholder until the PNG exists, then the PNG replaces it */
 .slot{display:grid;place-items:center;text-align:center;min-height:150px;margin:1rem 0;padding:1rem;border:2px dashed var(--hole);border-radius:10px;background:#f4f6f7;color:var(--muted);font-size:.9rem}
 .slot img{display:block;max-width:100%;height:auto}
@@ -94,6 +97,7 @@ form.q{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1rem}
   </div>
   <p>A beginner-friendly breadboard wiring game</p>
   <p class="note" id="title-mode"></p>
+  <p class="err" id="fw-warn"></p>
   <!-- IMAGE NEEDED: images/wiresmart_title.png - title illustration / logo (was images/circuit_quest_title.png) -->
   <!-- <div class="slot" data-src="images/wiresmart_title.png" data-alt="Title illustration or logo"></div> -->
   <div class="acts" id="title-actions"></div>
@@ -156,10 +160,18 @@ form.q{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-top:1rem}
   <div class="acts" id="done-actions"></div>
 </section>
 
+<!-- LEVEL SELECT -->
+<section class="screen" id="select" hidden>
+  <h2>Level select</h2>
+  <p class="note">Pick any level. Your score and progress are kept until you choose Start game, which begins a new run.</p>
+  <div class="acts" id="sel-list"></div>
+</section>
+
 <section class="screen" id="end" hidden>
   <h2>Thank you for playing WireSmart!</h2>
   <p>You completed the available WireSmart session.</p>
   <p><b id="final">Final score: 0 / 500 points</b></p>
+  <p id="end-note"></p>
   <p>More levels coming soon!</p>
   <!-- IMAGE NEEDED: images/end_screen.png - completion / trophy illustration -->
   <div class="slot" data-src="images/end_screen.png" data-alt="Completion or trophy illustration"></div>
@@ -244,9 +256,13 @@ const ser={p:null,rx:"",wake:null,
     const left=end-Date.now();if(left<=0)return"";await new Promise(r=>{const t=setTimeout(r,left);this.wake=()=>{clearTimeout(t);r()}})}},
   async close(){if(!this.p)return;try{await this.r.cancel();await this.loop;this.r.releaseLock();this.w.releaseLock();await this.p.close()}catch(e){}this.p=null}};
 
-const tester={sim:true,name:"",
+const FLOAT="float"; // returned by tester.analog when the Arduino reports an unconnected (floating) input
+const stop=r=>r==null?"err":r===FLOAT?"fail":0;
+const tester={sim:true,fw:false,name:"",
   desc(){return this.sim?"Simulation mode (manual readings)":`Arduino connected (${this.name})`},
   async connect(){ // must be called from a click: opens the browser's port picker
+    await ser.close(); // release any earlier connection first
+    this.fw=false;
     const port=await navigator.serial.requestPort(),i=port.getInfo();
     this.name=i.usbVendorId?`USB ${i.usbVendorId.toString(16).padStart(4,"0")}:${(i.usbProductId||0).toString(16).padStart(4,"0")}`:"serial device";
     await ser.open(port);
@@ -255,12 +271,30 @@ const tester={sim:true,name:"",
     for(let a=0;a<5;a++){
       try{await ser.write("PING")}catch(e){await sleep(200);continue}
       const end=Date.now()+1500;
-      while(Date.now()<end){const l=await ser.line(Math.max(1,Math.min(250,end-Date.now())));if(!l)continue;last=l;if(l==="PONG"){this.sim=false;return}}
+      while(Date.now()<end){const l=await ser.line(Math.max(1,Math.min(250,end-Date.now())));if(!l)continue;last=l;if(l==="PONG"){this.sim=false;await this.checkFirmware();return}}
       await sleep(200)}
     await ser.close();
     throw new Error(last?`The serial port opened and the Arduino sent '${last}', but it did not answer PING with PONG.\nThis usually means a different sketch is uploaded or the serial protocol does not match.\nUpload CircuitQuestArduino.ino (9600 baud), then close Serial Monitor.`
       :"The serial port opened, but no serial response was received for PING.\nCheck the selected port, upload CircuitQuestArduino.ino, use 9600 baud, and close Serial Monitor/Plotter.")},
-  async useSim(){await ser.close();this.sim=true},
+  // Newer firmware answers VERSION and can detect unconnected (floating) inputs; older firmware cannot.
+  async checkFirmware(){
+    ser.rx="";this.fw=false;
+    try{await ser.write("VERSION")}catch(e){return}
+    const end=Date.now()+800;
+    while(Date.now()<end){const l=await ser.line(Math.max(1,end-Date.now()));
+      if(l.startsWith("VERSION,")){this.fw=true;break}
+      if(l.startsWith("ERR,"))break}
+    ser.rx=""},
+  // Run when a whole game starts: throw away stale serial data and confirm the Arduino still answers.
+  async refresh(){
+    if(this.sim)return true;
+    ser.rx="";
+    for(let a=0;a<3;a++){
+      try{await ser.write("PING")}catch(e){return false}
+      const end=Date.now()+1000;
+      while(Date.now()<end){const l=await ser.line(Math.max(1,Math.min(250,end-Date.now())));if(l==="PONG"){ser.rx="";return true}}}
+    return false},
+  async useSim(){await ser.close();this.sim=true;this.fw=false},
   async analog(cmd,label){
     if(this.sim)return askInt(`Enter simulated ${label} ADC reading (0-1023):`,0,1023);
     // The Arduino replies with a measurement tag (e.g. "LED,420"), not the pin label (e.g. "A0").
@@ -269,10 +303,13 @@ const tester={sim:true,name:"",
     return this.request(cmd,tag,0,1023)},
   async button(){return this.sim?askInt("Enter simulated button state (1=HIGH, 0=LOW):",0,1):this.request("READ:BUTTON","BUTTON",0,1)},
   async request(cmd,tag,lo,hi){
+    ser.rx=""; // discard any late/stale reply so an old reading can never be mistaken for this one
     try{await ser.write(cmd)}catch(e){log("Serial connection error: "+e.message,"bad");return null}
     const end=Date.now()+1800;
     while(Date.now()<end){const l=await ser.line(Math.max(1,end-Date.now()));if(!l)break;
       if(l.startsWith("ERR,")){log("Arduino reported: "+l,"bad");return null}
+      if(l.startsWith("FLOAT,")){const pin={LED:"A0",POT:"A1",RESISTORS:"A2"}[l.slice(6)]||l.slice(6);
+        log(`NOT YET: Nothing seems to be connected to ${pin}; the input is floating. Check that the jumper wire from ${pin} reaches your circuit.`,"bad");return FLOAT}
       if(l.startsWith(tag+",")){const n=l.slice(tag.length+1),v=Number(n);
         if(!/^-?\d+$/.test(n)||v<lo||v>hi){log("Invalid value from Arduino: "+l,"bad");return null}
         log("Arduino measurement: "+v);return v}}
@@ -283,7 +320,7 @@ const bad=t=>{log(t,"bad");return"fail"}, good=t=>{log(t,"ok");return"pass"};
 const checks={
  1:async()=>{head("Check circuit: LED polarity");
   log("Measuring A0. Example circuit: 5 V → 330 ohms → A0 → LED → GND.");
-  const r=await tester.analog("READ:LED","A0");if(r==null)return"err";
+  const r=await tester.analog("READ:LED","A0");if(stop(r))return stop(r);
   // Initial calibration range for a typical red LED, 330-ohm resistor and nominal 5 V Uno supply. Verify with your components.
   if(r>=320&&r<=500)return good("PASS: The reading is consistent with a forward-biased red LED.");
   return bad(r>=800?"NOT YET: The node is near 5 V. Check LED polarity or connections.":"NOT YET: The reading is outside the expected range. Check the LED and resistor.")},
@@ -298,9 +335,9 @@ const checks={
   return bad("NOT YET: Expected HIGH when released and LOW when pressed. Check the wiring.")},
  3:async()=>{head("Check circuit: potentiometer");
   log("Measure the middle terminal (wiper) at A1. Turn the knob to one end of its range before the first reading.");await pause();
-  const a=await tester.analog("READ:POT","A1 first");if(a==null)return"err";
+  const a=await tester.analog("READ:POT","A1 first");if(stop(a))return stop(a);
   log("Now rotate the knob substantially toward the other end of its range.");await pause();
-  const b=await tester.analog("READ:POT","A1 second");if(b==null)return"err";
+  const b=await tester.analog("READ:POT","A1 second");if(stop(b))return stop(b);
   const d=Math.abs(b-a);log(`First reading: ${a} | Second reading: ${b} | Change: ${d} counts`);
   if(d>=300)return good("PASS: The wiper voltage changes substantially as the knob turns.");
   return bad("NOT YET: The reading changed too little. Rotate farther and check the wiper connection.")},
@@ -309,7 +346,7 @@ async function resistors(series){
   head("Check circuit: "+(series?"series":"parallel")+" resistors");
   log("Measure A2. The tester has a fixed 10-kilohm resistor from 5 V to A2. The two student resistors connect between A2 and GND.");
   log("Two 1-kilohm resistors in series should read around 170 ADC counts; two in parallel should read around 49 counts on a typical 5 V Uno.");
-  const r=await tester.analog("READ:RESISTORS","A2");if(r==null)return"err";
+  const r=await tester.analog("READ:RESISTORS","A2");if(stop(r))return stop(r);
   const isS=r>=145&&r<=195, isP=r>=30&&r<=70;
   if(series&&isS)return good("PASS: The reading matches the series configuration.");
   if(!series&&isP)return good("PASS: The reading matches the parallel configuration.");
@@ -318,13 +355,13 @@ async function resistors(series){
   return bad("NOT YET: The reading is outside both expected ranges. Check for loose wires, an open circuit, a short, or the wrong resistor values.")}
 
 // ------------------------- Game flow (mirrors main() in the C++ version) -------------------------
-let score=0,got=[],fails=[]; // fails[i] = failed checks of level i (communication errors don't count)
+let score=0,got=[],fails=[],skipped=[]; // fails[i] = failed checks of level i (communication errors don't count)
 const QUIT="quit";
 function paint(){$("#mode").textContent=tester.desc();$("#score").textContent=`Score ${score} / 500`;
-  [...$("#dots").children].forEach((d,i)=>d.classList.toggle("lit",!!got[i]))}
+  [...$("#dots").children].forEach((d,i)=>{d.classList.toggle("lit",!!got[i]);d.classList.toggle("skip",!got[i]&&!!skipped[i])})}
 
-async function chooseMode(){
-  show("connect");$("#conn-err").textContent="";
+async function chooseMode(msg){
+  show("connect");$("#conn-err").textContent=msg||"";
   const ok="serial" in navigator;
   $("#conn-note").textContent=ok?"":"This browser can’t talk to USB serial devices. Use Chrome or Edge on a computer for an Arduino, or run in simulation mode.";
   for(;;){
@@ -337,12 +374,20 @@ async function chooseMode(){
       if(await ask($("#conn-actions"),[["Use simulation mode instead",1,"pri"],["Quit",0]])){await tester.useSim();paint();return true}
       return false}}}
 
+// Returns "new" (Start game), "select" (Level select) or a falsy value (Quit).
 async function title(){
   for(;;){
     show("title");$("#title-mode").textContent="Connection: "+tester.desc();
-    const c=await ask($("#title-actions"),[["Start game",1,"pri"],["Change connection","conn"],["Quit",0]]);
+    $("#fw-warn").textContent=(!tester.sim&&!tester.fw)?"Warning: this Arduino is running older firmware that cannot tell when an input is unconnected, so a level may pass with nothing wired. Upload the updated CircuitQuestArduino.ino, then use Change connection.":"";
+    const c=await ask($("#title-actions"),[["Start game","new","pri"],["Level select","select"],["Change connection","conn"],["Quit",0]]);
     if(c==="conn"){if(!await chooseMode())return false;continue}
-    return !!c}}
+    return c}}
+
+// Before a game starts: flush stale serial data and confirm the Arduino still answers. Offers to reconnect if not.
+async function ensureTester(){
+  if(await tester.refresh())return true;
+  if(!await chooseMode("Lost contact with the Arduino (no reply to PING).\nCheck the USB cable, then reconnect or use simulation mode."))throw QUIT;
+  return true}
 
 function renderLevel(c){
   $("#level-title").textContent=`Level ${c.level}: ${c.title}`;
@@ -361,43 +406,74 @@ function showAnswer(c){
   d.innerHTML=`<h3>Correct answer: ${c.title}</h3><div class="slot" data-src="${c.bb}" data-alt="Correct breadboard layout for level ${c.level}"></div><p class="cap">Wiring: ${c.desc}</p>`;
   $("#log").append(d);hydrate(d);d.scrollIntoView({block:"nearest"})}
 
-async function play(){
-  score=0;got=[];fails=[];paint();let i=0,back=false;
-  for(const id of["intro1","intro2","intro3","intro4"]){
-    if(id==="intro3")$("#how-mode").textContent=tester.sim?"Current mode: readings are typed manually for testing the game logic.":"Current mode: measurements are requested from the Arduino over USB serial.";
-    await next(id)}
-  while(i<CH.length&&!back){
-    const c=CH[i];let passed=false,msg="";
-    while(!passed&&!back){
-      renderLevel(c);show("level");await ask($("#level-actions"),[["Check my circuit",1,"pri"]]);
-      show("check");const r=await checks[c.level]();
-      if(r==="pass"){passed=true;
-        if(!got[i]){score+=100;got[i]=1;msg="+100 points!"}else msg="You have already earned points for this level in this session.";
-        paint();log(msg+` Current score: ${score} / 500`,"ok");await pause()}
-      else{if(r==="err")log("The measurement could not be completed.","bad");
-        if(r==="fail")fails[i]=(fails[i]||0)+1;
-        const opts=[[r==="err"?"Retry this level":"Try this level again",1,"pri"],["Return to title screen",0]];
-        if(fails[i]>=2)opts.splice(1,0,["Show correct answer","show"]);
-        let pick=await ask($("#ctl"),opts);
-        if(pick==="show"){showAnswer(c);pick=await ask($("#ctl"),[["Try this level again",1,"pri"],["Return to title screen",0]])}
-        if(!pick)back=true}}
-    if(back)break;
-    const last=i+1===CH.length;
-    $("#done-title").textContent="Level complete: "+c.title;
-    $("#done-msg").textContent=last?"All five levels completed!":"";
-    show("done");
-    const ch=await ask($("#done-actions"),[[last?"Finish game and view the end screen":"Next level",1,"pri"],["Replay this level",2],["Quit game",0]]);
-    if(ch===0)throw QUIT;
-    if(ch===1){
-      if(!last)i++;
-      else{$("#final").textContent=`Final score: ${score} / 500 points`;show("end");
-        if(!await ask($("#end-actions"),[["Return to title screen",1,"pri"],["Quit game",0]]))throw QUIT;
-        back=true}}}}
+// Pick any level. Resolves with a level index, or "title".
+async function pickLevel(){
+  show("select");
+  return ask($("#sel-list"),[...CH.map((c,i)=>[`Level ${c.level}: ${c.title} (${got[i]?"passed":skipped[i]?"skipped":"not passed yet"})`,i,"lvl"]),["Back to title screen","title"]])}
+
+// Plays one level. Resolves with the next level index, or "select" / "end" / "title".
+async function level(i){
+  const c=CH[i];let shown=false;
+  for(;;){
+    renderLevel(c);show("level");
+    if(await ask($("#level-actions"),[["Check my circuit",1,"pri"],["Level select","select"]])==="select")return "select";
+    show("check");const r=await checks[c.level]();
+    if(r==="pass"){
+      const first=!got[i];
+      if(first){score+=100;got[i]=1;skipped[i]=0}
+      paint();log((first?"+100 points!":"You have already earned points for this level in this session.")+` Current score: ${score} / 500`,"ok");await pause();
+      return levelDone(i)}
+    if(r==="err")log("The measurement could not be completed.","bad");
+    if(r==="fail")fails[i]=(fails[i]||0)+1;
+    for(;;){ // menu shown after every check that did not pass
+      const opts=[[r==="err"?"Retry this level":"Try this level again","retry","pri"]];
+      if(fails[i]>=2&&!shown)opts.push(["Show correct answer","show"]);
+      opts.push(["Skip this level","skip"],["Level select","select"],["Return to title screen","title"]);
+      const pick=await ask($("#ctl"),opts);
+      if(pick==="show"){showAnswer(c);shown=true;continue}
+      if(pick==="skip"){if(!got[i])skipped[i]=1;paint();return i+1<CH.length?i+1:"end"}
+      if(pick==="retry")break;
+      return pick}}}
+
+async function levelDone(i){
+  const c=CH[i],last=i+1===CH.length,all=CH.every((_,k)=>got[k]);
+  $("#done-title").textContent="Level complete: "+c.title;
+  $("#done-msg").textContent=last?(all?"All five levels completed!":"That was the last level."):"";
+  show("done");
+  const ch=await ask($("#done-actions"),[[last?"Finish game and view the end screen":"Next level","next","pri"],["Replay this level","replay"],["Level select","select"],["Quit game","quit"]]);
+  if(ch==="quit")throw QUIT;
+  if(ch==="replay")return i;
+  if(ch==="select")return "select";
+  return last?"end":i+1}
+
+async function endScreen(){
+  const sk=CH.filter((_,k)=>!got[k]).map(c=>c.level);
+  $("#final").textContent=`Final score: ${score} / 500 points`;
+  $("#end-note").textContent=sk.length?`Levels not passed: ${sk.join(", ")}. You can go back to any of them from Level select.`:"You passed every level.";
+  show("end");
+  const ch=await ask($("#end-actions"),[["Return to title screen","title","pri"],["Level select","select"],["Quit game",0]]);
+  if(!ch)throw QUIT;
+  return ch}
+
+// mode "new": reset everything and show the intros, then start at level 1. mode "select": open level select, keep progress.
+async function play(mode){
+  await ensureTester();
+  if(mode==="new"){
+    score=0;got=[];fails=[];skipped=[];paint();
+    for(const id of["intro1","intro2","intro3","intro4"]){
+      if(id==="intro3")$("#how-mode").textContent=tester.sim?"Current mode: readings are typed manually for testing the game logic.":"Current mode: measurements are requested from the Arduino over USB serial.";
+      await next(id)}}
+  let i=mode==="new"?0:"select";
+  for(;;){
+    if(i==="title")return;
+    if(i==="select")i=await pickLevel();
+    else if(i==="end")i=await endScreen();
+    else i=await level(i)}}
 
 async function main(){
   try{
     if(!await chooseMode())throw QUIT;
-    while(await title())await play();
+    let m;while(m=await title())await play(m);
   }catch(e){if(e!==QUIT)throw e}
   await tester.useSim();paint();show("bye");
 }
