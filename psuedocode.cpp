@@ -1,4 +1,4 @@
-using namespcae std;
+using namespace std;
 
 /*intro section
         - title screen
